@@ -68,7 +68,7 @@ static WiFiServer tcpServer(TCP_PORT);
 static void socketInit() {
     tcpServer.begin();
     tcpServer.setNoDelay(true);
-    Serial.printf("[comms/socket] TCP server listening on port %d\n", TCP_PORT);
+    Serial.printf("[comms/socket] Servidor TCP aguardando na porta %d\n", TCP_PORT);
 }
 
 /**
@@ -76,7 +76,7 @@ static void socketInit() {
  * Retorna o objeto WiFiClient conectado.
  */
 static WiFiClient socketWaitForClient() {
-    Serial.println("[comms/socket] Waiting for desktop client...");
+    Serial.println("[comms/socket] Aguardando conexao do cliente desktop...");
     WiFiClient client;
     while (!client) {
         client = tcpServer.available();
@@ -85,7 +85,7 @@ static WiFiClient socketWaitForClient() {
         }
     }
     client.setTimeout(5);  // timeout de leitura de 5 s
-    Serial.printf("[comms/socket] Desktop connected from %s\n",
+    Serial.printf("[comms/socket] Desktop conectado de %s\n",
                   client.remoteIP().toString().c_str());
     return client;
 }
@@ -119,8 +119,7 @@ static String socketReadLine(WiFiClient &client) {
 
 /**
  * protocolBuildReading — constrói uma mensagem JSON "reading" a partir do SystemState atual.
- * O chamador deve manter xStateMutex antes de chamar esta função,
- * ou passar uma cópia local (preferível para minimizar o tempo com o mutex).
+ * O chamador deve manter xStateMutex antes de chamar esta função, ou passar uma cópia local (preferível para minimizar o tempo com o mutex).
  */
 static void protocolBuildReading(JsonDocument &doc, const SystemState &snap) {
     doc["type"]  = "reading";
@@ -136,8 +135,7 @@ static void protocolBuildReading(JsonDocument &doc, const SystemState &snap) {
  * protocolBuildAck — constrói uma mensagem de confirmação (acknowledgement).
  * status: "ok" ou "error". msg é opcional, usado quando status = "error".
  */
-static void protocolBuildAck(JsonDocument &doc, const char *status,
-                              const char *msg = nullptr) {
+static void protocolBuildAck(JsonDocument &doc, const char *status, const char *msg = nullptr) {
     doc["type"]   = "ack";
     doc["status"] = status;
     if (msg != nullptr) {
@@ -153,7 +151,7 @@ static String protocolParseIncoming(const String &line, JsonDocument &doc) {
     if (line.isEmpty()) return "";
     DeserializationError err = deserializeJson(doc, line);
     if (err) {
-        Serial.printf("[comms/proto] JSON parse error: %s\n", err.c_str());
+        Serial.printf("[comms/proto] Erro ao parsear JSON: %s\n", err.c_str());
         return "";
     }
     const char *type = doc["type"] | "";
@@ -177,7 +175,7 @@ static bool persistApplyConfig(const JsonDocument &doc) {
     if (isnan(new_temp) || isnan(new_hum) ||
         new_temp < -10.0f || new_temp > 50.0f ||
         new_hum  <   0.0f || new_hum  > 100.0f) {
-        Serial.println("[comms/persist] Received out-of-range config — rejected");
+        Serial.println("[comms/persist] Config com valores fora do intervalo recebida — rejeitada");
         return false;
     }
 
@@ -187,12 +185,12 @@ static bool persistApplyConfig(const JsonDocument &doc) {
         g_config.hum_thresh  = new_hum;
         storageSaveConfig(&g_config);
         xSemaphoreGive(xConfigMutex);
-        Serial.printf("[comms/persist] Config updated and saved — temp=%.1f  hum=%.1f\n",
+        Serial.printf("[comms/persist] Configuracao atualizada e salva — temp=%.1f  hum=%.1f\n",
                       new_temp, new_hum);
         return true;
     }
 
-    Serial.println("[comms/persist] xConfigMutex timeout — config not applied");
+    Serial.println("[comms/persist] Timeout no xConfigMutex — configuracao nao aplicada");
     return false;
 }
 
@@ -232,7 +230,7 @@ void vTaskComms(void *pvParameters) {
                     StaticJsonDocument<256> txDoc;
                     protocolBuildReading(txDoc, snap);
                     if (!socketSendLine(client, txDoc)) {
-                        Serial.println("[comms/socket] Send failed — client disconnected");
+                        Serial.println("[comms/socket] Falha no envio — cliente desconectado");
                         break;
                     }
                     lastSentSeq = snap.seq;
@@ -255,10 +253,10 @@ void vTaskComms(void *pvParameters) {
                     StaticJsonDocument<64> ackDoc;
                     protocolBuildAck(ackDoc,
                                      ok ? "ok" : "error",
-                                     ok ? nullptr : "Invalid or out-of-range values");
+                                     ok ? nullptr : "Valores invalidos ou fora do intervalo");
                     socketSendLine(client, ackDoc);
                 } else if (!msgType.isEmpty()) {
-                    Serial.printf("[comms/proto] Unknown message type: %s\n",
+                    Serial.printf("[comms/proto] Tipo de mensagem desconhecido: %s\n",
                                   msgType.c_str());
                 }
             }
@@ -267,6 +265,6 @@ void vTaskComms(void *pvParameters) {
         }
 
         client.stop();
-        Serial.println("[comms/socket] Desktop disconnected. Waiting for new connection.");
+        Serial.println("[comms/socket] Desktop desconectado. Aguardando nova conexao.");
     }
 }

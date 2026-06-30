@@ -11,6 +11,7 @@
  *   T3 chama ulTaskNotifyTake(pdTRUE, portMAX_DELAY), que bloqueia até a
  *   notificação chegar. pdTRUE limpa o contador de notificações na saída, para
  *   que notificações sucessivas rápidas não se acumulem (uma atualização por ciclo).
+ *   portMAX_DELAY faz com que a tarefa consuma zero CPU enquanto aguarda.
  *
  * Mapeamento de GPIO (definido em config.h):
  *   LED_HEATING_PIN → HIGH quando g_state.heat_on  é verdadeiro
@@ -39,23 +40,19 @@ void vTaskActuators(void *pvParameters) {
     digitalWrite(LED_HEATING_PIN, LOW);
     digitalWrite(LED_DEHUM_PIN,   LOW);
 
-    for (;;) {
+    while (true) {
         // Bloqueia aqui até T2 enviar uma notificação de tarefa.
-        // ulTaskNotifyTake com pdTRUE age como um semáforo binário leve:
-        // - limpa a notificação ao retornar, evitando acúmulo de notificações antigas;
-        // - portMAX_DELAY significa que a tarefa consome zero CPU enquanto aguarda.
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        // --- Lê o estado (seção crítica) ------------------------------------
+        // --- Lê o estado --------------------
         bool heat_on, dehum_on;
         if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             heat_on  = g_state.heat_on;
             dehum_on = g_state.dehum_on;
             xSemaphoreGive(xStateMutex);
         } else {
-            // Se não conseguir o mutex, pula este ciclo.
-            // O estado será aplicado na próxima notificação.
-            Serial.println("[actuators] WARNING: xStateMutex timeout");
+            // Se não conseguir o mutex, pula este ciclo. O estado será aplicado na próxima notificação.
+            Serial.println("[actuators] AVISO: timeout no xStateMutex");
             continue;
         }
 
@@ -63,8 +60,6 @@ void vTaskActuators(void *pvParameters) {
         digitalWrite(LED_HEATING_PIN, heat_on  ? HIGH : LOW);
         digitalWrite(LED_DEHUM_PIN,   dehum_on ? HIGH : LOW);
 
-        Serial.printf("[actuators] LED heating=%s  LED dehum=%s\n",
-                      heat_on  ? "ON" : "OFF",
-                      dehum_on ? "ON" : "OFF");
+        Serial.printf("[actuators] LED aquecimento=%s  LED desumid=%s\n", heat_on  ? "LIGADO" : "DESLIGADO", dehum_on ? "LIGADO" : "DESLIGADO");
     }
 }

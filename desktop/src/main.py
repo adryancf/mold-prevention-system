@@ -110,14 +110,14 @@ class SimulatorThread(threading.Thread):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Mold Prevention System — Desktop Application"
+        description="Sistema de Prevencao de Mofo — Aplicacao Desktop"
     )
     parser.add_argument("--host",     default=DEFAULT_HOST,
-                        help=f"ESP32 IP address (default: {DEFAULT_HOST})")
+                        help=f"Endereco IP do ESP32 (padrao: {DEFAULT_HOST})")
     parser.add_argument("--port",     default=DEFAULT_PORT, type=int,
-                        help=f"ESP32 TCP port (default: {DEFAULT_PORT})")
+                        help=f"Porta TCP do servidor ESP32 (padrao: {DEFAULT_PORT})")
     parser.add_argument("--simulate", action="store_true",
-                        help="Run without real hardware (simulation mode)")
+                        help="Executa sem hardware real (modo simulacao)")
     return parser.parse_args()
 
 
@@ -127,11 +127,11 @@ def main() -> None:
     data_queue: queue.Queue = queue.Queue()
 
     if args.simulate:
-        print("[main] Simulation mode enabled — no hardware required")
+        print("[main] Modo simulacao ativado — nenhum hardware necessario")
         worker = SimulatorThread(data_queue)
         send_config_fn = worker.send_config
     else:
-        print(f"[main] Connecting to ESP32 at {args.host}:{args.port}")
+        print(f"[main] Conectando ao ESP32 em {args.host}:{args.port}")
         worker = None  # criado após a janela para que status_callback esteja disponível
 
     # Constrói a janela GUI primeiro para passar seu callback de status ao cliente

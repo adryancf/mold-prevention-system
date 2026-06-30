@@ -12,8 +12,6 @@
  *   xTaskNotify() é usado em vez de semáforo binário porque:
  *     1. É mais leve — sem alocação de objeto semáforo.
  *     2. O valor da notificação não importa (apenas o sinal é relevante).
- *     3. T3 tem exatamente um produtor (esta tarefa), tornando as notificações
- *        de tarefa a escolha idiomática do FreeRTOS para sinalização de produtor único.
  *   T3 bloqueia em ulTaskNotifyTake(pdTRUE, portMAX_DELAY).
  *
  * Lógica de decisão:
@@ -47,24 +45,15 @@ extern SystemState       g_state;
 // ---------------------------------------------------------------------------
 // Lógica de recomendação de ventilação
 // ---------------------------------------------------------------------------
-static void buildVentRec(float temp, float hum, bool heat_on, bool dehum_on,
-                         char *buf, size_t buflen) {
+static void buildVentRec(float temp, float hum, bool heat_on, bool dehum_on, char *buf, size_t buflen) {
     if (!dehum_on && !heat_on) {
-        snprintf(buf, buflen,
-                 "Condicoes adequadas. Ventilacao opcional.");
+        snprintf(buf, buflen, "Condicoes adequadas. Ventilacao opcional.");
     } else if (heat_on && dehum_on) {
-        // Frio E úmido: ventilação breve reduz a umidade sem
-        // baixar demais a temperatura.
-        snprintf(buf, buflen,
-                 "Frio e umido. Ventilar brevemente (5-10 min) e depois fechar.");
+        snprintf(buf, buflen, "Frio e umido. Ventilar brevemente (5-10 min) e depois fechar.");
     } else if (!heat_on && dehum_on) {
-        // Quente E úmido: ventilação mais longa é segura e eficaz.
-        snprintf(buf, buflen,
-                 "Ambiente quente e umido. Ventilar por 15-30 min.");
+        snprintf(buf, buflen, "Ambiente quente e umido. Ventilar por 15-30 min.");
     } else {
-        // Apenas heat_on (seco mas frio): ventilação não traz benefício.
-        snprintf(buf, buflen,
-                 "Temperatura baixa. Evite ventilacao prolongada.");
+        snprintf(buf, buflen, "Temperatura baixa. Evite ventilacao prolongada.");
     }
 }
 
@@ -76,7 +65,7 @@ void vTaskDecision(void *pvParameters) {
 
     SensorReading reading;
 
-    for (;;) {
+    while (true) {
         // Bloqueia indefinidamente até uma SensorReading estar disponível.
         if (xQueueReceive(xQueueSensor, &reading, portMAX_DELAY) != pdTRUE) {
             continue;
@@ -84,20 +73,19 @@ void vTaskDecision(void *pvParameters) {
 
         // Descarta leituras inválidas do sensor (erro do DHT) sem atualizar o estado.
         if (!reading.valid) {
-            Serial.println("[decision] Received invalid reading — skipped");
+            Serial.println("[decision] Leitura invalida recebida — ignorada");
             continue;
         }
 
-        // --- Lê os limites atuais (seção crítica) --------------------------
-        // xConfigMutex garante que g_config não está sendo modificado por T4
-        // ao mesmo tempo que estamos lendo.
+        // --- Lê os limites atuais --------------------------
+        // xConfigMutex garante que g_config não está sendo modificado por T4 ao mesmo tempo que estamos lendo.
         float temp_thresh, hum_thresh;
         if (xSemaphoreTake(xConfigMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             temp_thresh = g_config.temp_thresh;
             hum_thresh  = g_config.hum_thresh;
             xSemaphoreGive(xConfigMutex);
         } else {
-            Serial.println("[decision] WARNING: xConfigMutex timeout — using previous state");
+            Serial.println("[decision] AVISO: timeout no xConfigMutex — estado anterior mantido");
             continue;
         }
 
@@ -105,8 +93,7 @@ void vTaskDecision(void *pvParameters) {
         bool heat_on  = (reading.temp < temp_thresh);
         bool dehum_on = (reading.hum  > hum_thresh);
         char vent_rec[128];
-        buildVentRec(reading.temp, reading.hum, heat_on, dehum_on,
-                     vent_rec, sizeof(vent_rec));
+        buildVentRec(reading.temp, reading.hum, heat_on, dehum_on, vent_rec, sizeof(vent_rec));
 
         // --- Escreve o novo estado (seção crítica) ---------------------------
         // xStateMutex impede que T3 e T4 leiam um estado parcialmente escrito.
@@ -120,17 +107,14 @@ void vTaskDecision(void *pvParameters) {
             g_state.seq++;
             xSemaphoreGive(xStateMutex);
         } else {
-            Serial.println("[decision] WARNING: xStateMutex timeout — state not updated");
+            Serial.println("[decision] AVISO: timeout no xStateMutex — estado nao atualizado");
             continue;
         }
 
         Serial.printf("[decision] heat=%d  dehum=%d  seq=%u  rec: %s\n",
                       heat_on, dehum_on, g_state.seq, vent_rec);
 
-        // --- Notifica T3 (vTaskActuators) ------------------------------------
-        // xTaskNotify acorda T3 imediatamente para que atualize as saídas GPIO.
-        // eNoAction significa que o valor de 32 bits da notificação não é modificado;
-        // apenas a flag "pendente" é ativada, que é tudo que T3 precisa.
+        // --- Notifica T3 (vTaskActuators) ------------------------------------                
         xTaskNotify(xTaskActuators, 0, eNoAction);
     }
 }

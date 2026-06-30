@@ -28,7 +28,7 @@
 static Preferences prefs;
 
 void storageLoadConfig(Config *cfg) {
-    prefs.begin(NVS_NAMESPACE, /*readOnly=*/true);
+    prefs.begin(NVS_NAMESPACE, /*somenteConsulta=*/true);
 
     // getFloat retorna o valor padrão (segundo argumento) se a chave não existir.
     cfg->temp_thresh = prefs.getFloat(NVS_KEY_TEMP_THRESH, cfg->temp_thresh);
@@ -36,18 +36,18 @@ void storageLoadConfig(Config *cfg) {
 
     prefs.end();
 
-    Serial.printf("[storage] Config loaded — temp_thresh=%.1f  hum_thresh=%.1f\n",
+    Serial.printf("[storage] Configuracao carregada — temp_thresh=%.1f  hum_thresh=%.1f\n",
                   cfg->temp_thresh, cfg->hum_thresh);
 }
 
 void storageSaveConfig(const Config *cfg) {
-    prefs.begin(NVS_NAMESPACE, /*readOnly=*/false);
+    prefs.begin(NVS_NAMESPACE, /*somenteConsulta=*/false);
 
     prefs.putFloat(NVS_KEY_TEMP_THRESH, cfg->temp_thresh);
     prefs.putFloat(NVS_KEY_HUM_THRESH,  cfg->hum_thresh);
 
     prefs.end();
 
-    Serial.printf("[storage] Config saved — temp_thresh=%.1f  hum_thresh=%.1f\n",
+    Serial.printf("[storage] Configuracao salva — temp_thresh=%.1f  hum_thresh=%.1f\n",
                   cfg->temp_thresh, cfg->hum_thresh);
 }

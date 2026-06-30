@@ -169,7 +169,7 @@ class SocketClient(threading.Thread):
                             data = json.loads(line)
                             self.data_queue.put(data)
                         except json.JSONDecodeError as exc:
-                            print(f"[client] JSON parse error: {exc} — line: {line!r}")
+                            print(f"[client] Erro ao parsear JSON: {exc} — linha: {line!r}")
 
             except OSError as exc:
                 self._set_status(f"Erro de socket: {exc}")

@@ -48,7 +48,7 @@ void vTaskSensor(void *pvParameters) {
         reading.valid     = !(isnan(reading.temp) || isnan(reading.hum));
 
         if (!reading.valid) {
-            Serial.println("[sensor] DHT22 read failed — enqueuing invalid sample");
+            Serial.println("[sensor] Falha na leitura do DHT22 — amostra invalida enfileirada");
         } else {
             Serial.printf("[sensor] temp=%.1f °C  hum=%.1f %%\n",
                           reading.temp, reading.hum);
@@ -57,7 +57,7 @@ void vTaskSensor(void *pvParameters) {
         // xQueueSend bloqueará por até 100 ms se a fila estiver cheia.
         // Se expirar o tempo, a amostra é descartada e um aviso é registrado.
         if (xQueueSend(xQueueSensor, &reading, pdMS_TO_TICKS(100)) != pdTRUE) {
-            Serial.println("[sensor] WARNING: xQueueSensor full — sample dropped");
+            Serial.println("[sensor] AVISO: xQueueSensor cheia — amostra descartada");
         }
 
         // Período estável: próximo wake-up relativo a xLastWakeTime, não ao momento atual.

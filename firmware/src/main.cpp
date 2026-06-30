@@ -62,7 +62,7 @@ void storageLoadConfig(Config *cfg);
 // ---------------------------------------------------------------------------
 void setup() {
     Serial.begin(115200);
-    Serial.println("[main] Booting mold prevention system...");
+    Serial.println("[main] Iniciando sistema de prevencao de mofo...");
 
     // --- Configuração dos GPIOs ---------------------------------------------
     pinMode(LED_HEATING_PIN, OUTPUT);
@@ -73,19 +73,19 @@ void setup() {
     // --- Carrega limites persistidos do NVS ---------------------------------
     // Sobrescreve os valores padrão de g_config se houver valores salvos anteriormente.
     storageLoadConfig(&g_config);
-    Serial.printf("[main] Thresholds loaded — temp: %.1f °C, hum: %.1f %%\n",
+    Serial.printf("[main] Limiares carregados — temp: %.1f C, hum: %.1f %%\n",
                   g_config.temp_thresh, g_config.hum_thresh);
 
     // --- Conexão WiFi -------------------------------------------------------
-    Serial.printf("[main] Connecting to WiFi: %s\n", WIFI_SSID);
+    Serial.printf("[main] Conectando ao WiFi: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
     }
-    Serial.printf("\n[main] WiFi connected — IP: %s\n",
+    Serial.printf("\n[main] WiFi conectado — IP: %s\n",
                   WiFi.localIP().toString().c_str());
-    Serial.printf("[main] ESP32 TCP server will listen on port %d\n", TCP_PORT);
+    Serial.printf("[main] Servidor TCP do ESP32 aguardando na porta %d\n", TCP_PORT);
 
     // --- Criação das primitivas FreeRTOS ------------------------------------
 
@@ -133,7 +133,7 @@ void setup() {
         0  /* core 0 — dedicado a I/O de rede */
     );
 
-    Serial.println("[main] All tasks created. Scheduler running.");
+    Serial.println("[main] Todas as tarefas criadas. Escalonador em execucao.");
 }
 
 // loop() não é utilizado — toda a lógica vive nas tarefas FreeRTOS.
