@@ -1,0 +1,33 @@
+# PlatformIO build artifacts
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.venv/
+venv/
+env/
+*.env
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+PROJECT_SPEC.md

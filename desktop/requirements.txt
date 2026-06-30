@@ -1,0 +1,14 @@
+# Mold Prevention System — Desktop Application Dependencies
+#
+# tkinter is part of Python's standard library (no pip install needed).
+# On some Linux distributions it must be installed separately:
+#   Fedora/RHEL: sudo dnf install python3-tkinter
+#   Ubuntu/Debian: sudo apt install python3-tk
+#
+# matplotlib — embeds a live chart of sensor history inside the Tkinter window.
+# pillow     — required by matplotlib's TkAgg backend (ImageTk).
+#              Use a venv + pip to ensure the full wheel is installed:
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+
+matplotlib>=3.7.0
+pillow>=10.0.0
