@@ -7,7 +7,7 @@
  *   - Definir o nível de saída GPIO de cada LED de acordo com o estado.
  *
  * Fluxo da notificação de tarefa:
- *   T2 chama xTaskNotify(xTaskActuators, 0, eNoAction) após atualizar g_state.
+ *   T2 chama xTaskNotifyGive(xTaskActuators) após atualizar g_state.
  *   T3 chama ulTaskNotifyTake(pdTRUE, portMAX_DELAY), que bloqueia até a
  *   notificação chegar. pdTRUE limpa o contador de notificações na saída, para
  *   que notificações sucessivas rápidas não se acumulem (uma atualização por ciclo).

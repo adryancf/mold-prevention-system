@@ -16,8 +16,8 @@
  * storageSaveConfig: escreve ambos os limiares no NVS atomicamente.
  *   Chamada por vTaskComms sempre que o desktop envia novos limiares.
  *
- * Nenhuma primitiva FreeRTOS é usada aqui porque essas funções são sempre
- * chamadas de dentro de uma seção já protegida por xConfigMutex em vTaskComms.
+ * Nenhuma primitiva FreeRTOS é usada aqui. O chamador deve proteger g_config
+ * quando copiar valores para/de estruturas globais compartilhadas.
  */
 
 #include <Preferences.h>
@@ -26,6 +26,11 @@
 #include "types.h"
 
 static Preferences prefs;
+
+static bool configLooksValid(float temp_thresh, float hum_thresh) {
+    return temp_thresh >= -10.0f && temp_thresh <= 50.0f &&
+           hum_thresh >= 0.0f && hum_thresh <= 100.0f;
+}
 
 void storageLoadConfig(Config *cfg) {
     prefs.begin(NVS_NAMESPACE, /*somenteConsulta=*/true);
@@ -36,11 +41,22 @@ void storageLoadConfig(Config *cfg) {
 
     prefs.end();
 
+    if (!configLooksValid(cfg->temp_thresh, cfg->hum_thresh)) {
+        Serial.println("[storage] Configuracao persistida invalida — usando padroes");
+        cfg->temp_thresh = DEFAULT_TEMP_THRESH;
+        cfg->hum_thresh  = DEFAULT_HUM_THRESH;
+    }
+
     Serial.printf("[storage] Configuracao carregada — temp_thresh=%.1f  hum_thresh=%.1f\n",
                   cfg->temp_thresh, cfg->hum_thresh);
 }
 
 void storageSaveConfig(const Config *cfg) {
+    if (!configLooksValid(cfg->temp_thresh, cfg->hum_thresh)) {
+        Serial.println("[storage] Configuracao invalida nao foi salva");
+        return;
+    }
+
     prefs.begin(NVS_NAMESPACE, /*somenteConsulta=*/false);
 
     prefs.putFloat(NVS_KEY_TEMP_THRESH, cfg->temp_thresh);

@@ -30,9 +30,11 @@ Todas as mensagens contêm um campo `"type"` que identifica o propósito:
 
 ## Mensagens
 
-### `reading` — Leitura e estado
+### `reading` — Leitura, estado e limiares atuais
 
-Enviada pelo ESP32 a cada 2,5 segundos (ou imediatamente após mudança de estado).
+Enviada pelo ESP32 sempre que uma leitura válida nova é processada. O firmware
+verifica mudanças a cada 250 ms, mas o ritmo real é limitado pelo DHT22
+(`SENSOR_INTERVAL_MS`, normalmente 2 s).
 
 ```json
 {
@@ -42,7 +44,9 @@ Enviada pelo ESP32 a cada 2,5 segundos (ou imediatamente após mudança de estad
   "hum":   67.3,
   "heat":  false,
   "dehum": true,
-  "rec":   "Ambiente quente e umido. Ventilar por 15-30 min."
+  "rec":   "Ambiente quente e umido. Ventilar por 15-30 min.",
+  "temp_thresh": 27.0,
+  "hum_thresh": 60.0
 }
 ```
 
@@ -54,6 +58,8 @@ Enviada pelo ESP32 a cada 2,5 segundos (ou imediatamente após mudança de estad
 | `heat` | `bool` | `true` se o LED de aquecimento está ativo |
 | `dehum` | `bool` | `true` se o LED de desumidificação está ativo |
 | `rec` | `string` | Recomendação textual de ventilação natural |
+| `temp_thresh` | `float` | Limiar de temperatura atualmente ativo no ESP32 |
+| `hum_thresh` | `float` | Limiar de umidade atualmente ativo no ESP32 |
 
 ---
 
@@ -110,10 +116,10 @@ Enviada pelo ESP32 após processar uma mensagem `config`.
 
 ```
 [ESP32 → Desktop]
-{"type":"reading","seq":1,"temp":24.5,"hum":67.3,"heat":false,"dehum":true,"rec":"Ambiente quente e umido. Ventilar por 15-30 min."}\n
+{"type":"reading","seq":1,"temp":24.5,"hum":67.3,"heat":false,"dehum":true,"rec":"Ambiente quente e umido. Ventilar por 15-30 min.","temp_thresh":27.0,"hum_thresh":60.0}\n
 
 [ESP32 → Desktop]
-{"type":"reading","seq":2,"temp":24.4,"hum":67.5,"heat":false,"dehum":true,"rec":"Ambiente quente e umido. Ventilar por 15-30 min."}\n
+{"type":"reading","seq":2,"temp":24.4,"hum":67.5,"heat":false,"dehum":true,"rec":"Ambiente quente e umido. Ventilar por 15-30 min.","temp_thresh":27.0,"hum_thresh":60.0}\n
 
 [Desktop → ESP32]
 {"type":"config","temp_thresh":18.0,"hum_thresh":55.0}\n
@@ -122,7 +128,7 @@ Enviada pelo ESP32 após processar uma mensagem `config`.
 {"type":"ack","status":"ok"}\n
 
 [ESP32 → Desktop]
-{"type":"reading","seq":3,"temp":24.4,"hum":67.5,"heat":false,"dehum":true,"rec":"Ambiente quente e umido. Ventilar por 15-30 min."}\n
+{"type":"reading","seq":3,"temp":24.4,"hum":67.5,"heat":false,"dehum":true,"rec":"Ambiente quente e umido. Ventilar por 15-30 min.","temp_thresh":18.0,"hum_thresh":55.0}\n
 ```
 
 ---

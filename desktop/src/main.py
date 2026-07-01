@@ -38,7 +38,7 @@ import threading
 import time
 
 from client import SocketClient
-from gui    import MainWindow
+from gui    import DEFAULT_HUM_THRESH, DEFAULT_TEMP_THRESH, MainWindow
 
 DEFAULT_HOST = "192.168.1.100"
 DEFAULT_PORT = 8080
@@ -59,8 +59,8 @@ class SimulatorThread(threading.Thread):
         self.data_queue = data_queue
         self._running   = True
         self._seq       = 0
-        self._temp_thresh = 20.0
-        self._hum_thresh  = 60.0
+        self._temp_thresh = DEFAULT_TEMP_THRESH
+        self._hum_thresh  = DEFAULT_HUM_THRESH
 
     def send_config(self, temp_thresh: float, hum_thresh: float) -> None:
         """Aceita atualizações de config da GUI (ack simulado)."""
@@ -99,6 +99,8 @@ class SimulatorThread(threading.Thread):
                 "heat":  heat,
                 "dehum": dehum,
                 "rec":   rec,
+                "temp_thresh": round(self._temp_thresh, 1),
+                "hum_thresh":  round(self._hum_thresh, 1),
             })
             t += 2.0
             time.sleep(2.0)
@@ -129,7 +131,6 @@ def main() -> None:
     if args.simulate:
         print("[main] Modo simulacao ativado — nenhum hardware necessario")
         worker = SimulatorThread(data_queue)
-        send_config_fn = worker.send_config
     else:
         print(f"[main] Conectando ao ESP32 em {args.host}:{args.port}")
         worker = None  # criado após a janela para que status_callback esteja disponível
@@ -137,7 +138,7 @@ def main() -> None:
     # Constrói a janela GUI primeiro para passar seu callback de status ao cliente
     window = MainWindow(
         data_queue    = data_queue,
-        send_config_fn= (send_config_fn if args.simulate else None),  # corrigido abaixo
+        send_config_fn= (worker.send_config if args.simulate else None),
         simulate      = args.simulate,
     )
 
@@ -148,8 +149,10 @@ def main() -> None:
             data_queue      = data_queue,
             status_callback = window.set_connection_status,
         )
-        window.send_config = client.send_config
+        window.set_send_config_fn(client.send_config)
         worker = client
+    else:
+        window.set_connection_status("Conectado (simulação)")
 
     worker.start()
 
@@ -157,6 +160,7 @@ def main() -> None:
         window.mainloop()
     finally:
         worker.stop()
+        worker.join(timeout=2.0)
 
 
 if __name__ == "__main__":

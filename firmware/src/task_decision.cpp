@@ -6,12 +6,12 @@
  *   - Ler os limites atuais de g_config (protegido por xConfigMutex).
  *   - Calcular o novo SystemState (heat_on, dehum_on, vent_rec).
  *   - Escrever o novo estado em g_state (protegido por xStateMutex).
- *   - Enviar uma notificação de tarefa para T3 (vTaskActuators) via xTaskNotify().
+ *   - Enviar uma notificação de tarefa para T3 (vTaskActuators) via xTaskNotifyGive().
  *
  * Notificação de tarefa para T3:
- *   xTaskNotify() é usado em vez de semáforo binário porque:
+ *   xTaskNotifyGive() é usado em vez de semáforo binário porque:
  *     1. É mais leve — sem alocação de objeto semáforo.
- *     2. O valor da notificação não importa (apenas o sinal é relevante).
+ *     2. O contador de notificações combina diretamente com ulTaskNotifyTake().
  *   T3 bloqueia em ulTaskNotifyTake(pdTRUE, portMAX_DELAY).
  *
  * Lógica de decisão:
@@ -97,6 +97,7 @@ void vTaskDecision(void *pvParameters) {
 
         // --- Escreve o novo estado (seção crítica) ---------------------------
         // xStateMutex impede que T3 e T4 leiam um estado parcialmente escrito.
+        uint32_t seq = 0;
         if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             g_state.temp     = reading.temp;
             g_state.hum      = reading.hum;
@@ -105,6 +106,7 @@ void vTaskDecision(void *pvParameters) {
             strncpy(g_state.vent_rec, vent_rec, sizeof(g_state.vent_rec) - 1);
             g_state.vent_rec[sizeof(g_state.vent_rec) - 1] = '\0';
             g_state.seq++;
+            seq = g_state.seq;
             xSemaphoreGive(xStateMutex);
         } else {
             Serial.println("[decision] AVISO: timeout no xStateMutex — estado nao atualizado");
@@ -112,9 +114,9 @@ void vTaskDecision(void *pvParameters) {
         }
 
         Serial.printf("[decision] heat=%d  dehum=%d  seq=%u  rec: %s\n",
-                      heat_on, dehum_on, g_state.seq, vent_rec);
+                      heat_on, dehum_on, seq, vent_rec);
 
         // --- Notifica T3 (vTaskActuators) ------------------------------------                
-        xTaskNotify(xTaskActuators, 0, eNoAction);
+        xTaskNotifyGive(xTaskActuators);
     }
 }

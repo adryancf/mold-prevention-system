@@ -77,6 +77,10 @@ void setup() {
                   g_config.temp_thresh, g_config.hum_thresh);
 
     // --- Conexão WiFi -------------------------------------------------------
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    WiFi.setAutoReconnect(true);
+
     Serial.printf("[main] Conectando ao WiFi: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {

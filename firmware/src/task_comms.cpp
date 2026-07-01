@@ -41,6 +41,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <math.h>
 #include <string.h>
 
 #include "config.h"
@@ -60,6 +61,7 @@ void storageSaveConfig(const Config *cfg);
 // ============================================================================
 
 static WiFiServer tcpServer(TCP_PORT);
+static const size_t MAX_INCOMING_LINE_LEN = 256;
 
 /**
  * socketInit — inicia o servidor TCP para que o desktop possa se conectar.
@@ -69,6 +71,18 @@ static void socketInit() {
     tcpServer.begin();
     tcpServer.setNoDelay(true);
     Serial.printf("[comms/socket] Servidor TCP aguardando na porta %d\n", TCP_PORT);
+}
+
+/**
+ * socketWaitForWifi — aguarda a interface WiFi ficar conectada.
+ * O auto-reconnect e configurado em setup(); aqui apenas evitamos aceitar
+ * clientes enquanto o ESP32 estiver fora da rede.
+ */
+static void socketWaitForWifi() {
+    while (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[comms/socket] WiFi desconectado — aguardando reconexao...");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 /**
@@ -84,7 +98,6 @@ static WiFiClient socketWaitForClient() {
             vTaskDelay(pdMS_TO_TICKS(200));
         }
     }
-    client.setTimeout(5);  // timeout de leitura de 5 s
     Serial.printf("[comms/socket] Desktop conectado de %s\n",
                   client.remoteIP().toString().c_str());
     return client;
@@ -94,7 +107,7 @@ static WiFiClient socketWaitForClient() {
  * socketSendLine — serializa um JsonDocument para o cliente como string terminada em nova linha.
  * Retorna false se o envio falhar (cliente desconectado).
  */
-static bool socketSendLine(WiFiClient &client, JsonDocument &doc) {
+static bool socketSendLine(WiFiClient &client, const JsonDocument &doc) {
     String line;
     serializeJson(doc, line);
     line += '\n';
@@ -103,14 +116,52 @@ static bool socketSendLine(WiFiClient &client, JsonDocument &doc) {
 }
 
 /**
- * socketReadLine — lê uma linha terminada em nova linha do cliente.
- * Retorna string vazia em caso de timeout ou desconexão.
+ * socketReadLine — acumula bytes recebidos ate formar uma linha completa.
+ * Retorna true apenas quando uma mensagem terminada em '\n' esta pronta.
  */
-static String socketReadLine(WiFiClient &client) {
-    if (!client.connected()) return "";
-    String line = client.readStringUntil('\n');
-    line.trim();
-    return line;
+static bool socketReadLine(WiFiClient &client, String &rxBuffer, bool &overflowed, String &line) {
+    while (client.available()) {
+        int value = client.read();
+        if (value < 0) {
+            break;
+        }
+
+        char ch = static_cast<char>(value);
+        if (ch == '\r') {
+            continue;
+        }
+
+        if (ch == '\n') {
+            if (overflowed) {
+                overflowed = false;
+                rxBuffer = "";
+                Serial.println("[comms/socket] Linha recebida excedeu o limite — descartada");
+                continue;
+            }
+
+            line = rxBuffer;
+            rxBuffer = "";
+            line.trim();
+            if (!line.isEmpty()) {
+                return true;
+            }
+            continue;
+        }
+
+        if (overflowed) {
+            continue;
+        }
+
+        if (rxBuffer.length() >= MAX_INCOMING_LINE_LEN) {
+            overflowed = true;
+            rxBuffer = "";
+            continue;
+        }
+
+        rxBuffer += ch;
+    }
+
+    return false;
 }
 
 // ============================================================================
@@ -121,14 +172,20 @@ static String socketReadLine(WiFiClient &client) {
  * protocolBuildReading — constrói uma mensagem JSON "reading" a partir do SystemState atual.
  * O chamador deve manter xStateMutex antes de chamar esta função, ou passar uma cópia local (preferível para minimizar o tempo com o mutex).
  */
-static void protocolBuildReading(JsonDocument &doc, const SystemState &snap) {
-    doc["type"]  = "reading";
-    doc["seq"]   = snap.seq;
-    doc["temp"]  = serialized(String(snap.temp,  1));
-    doc["hum"]   = serialized(String(snap.hum,   1));
-    doc["heat"]  = snap.heat_on;
-    doc["dehum"] = snap.dehum_on;
-    doc["rec"]   = snap.vent_rec;
+static float roundOneDecimal(float value) {
+    return roundf(value * 10.0f) / 10.0f;
+}
+
+static void protocolBuildReading(JsonDocument &doc, const SystemState &snap, const Config &cfg) {
+    doc["type"]        = "reading";
+    doc["seq"]         = snap.seq;
+    doc["temp"]        = roundOneDecimal(snap.temp);
+    doc["hum"]         = roundOneDecimal(snap.hum);
+    doc["heat"]        = snap.heat_on;
+    doc["dehum"]       = snap.dehum_on;
+    doc["rec"]         = snap.vent_rec;
+    doc["temp_thresh"] = roundOneDecimal(cfg.temp_thresh);
+    doc["hum_thresh"]  = roundOneDecimal(cfg.hum_thresh);
 }
 
 /**
@@ -179,19 +236,21 @@ static bool persistApplyConfig(const JsonDocument &doc) {
         return false;
     }
 
-    // Atualiza g_config sob mutex e persiste.
+    Config new_config = { new_temp, new_hum };
+
+    // Atualiza g_config sob mutex; a escrita em flash fica fora da seção crítica.
     if (xSemaphoreTake(xConfigMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-        g_config.temp_thresh = new_temp;
-        g_config.hum_thresh  = new_hum;
-        storageSaveConfig(&g_config);
+        g_config = new_config;
         xSemaphoreGive(xConfigMutex);
-        Serial.printf("[comms/persist] Configuracao atualizada e salva — temp=%.1f  hum=%.1f\n",
-                      new_temp, new_hum);
-        return true;
+    } else {
+        Serial.println("[comms/persist] Timeout no xConfigMutex — configuracao nao aplicada");
+        return false;
     }
 
-    Serial.println("[comms/persist] Timeout no xConfigMutex — configuracao nao aplicada");
-    return false;
+    storageSaveConfig(&new_config);
+    Serial.printf("[comms/persist] Configuracao atualizada e salva — temp=%.1f  hum=%.1f\n",
+                  new_temp, new_hum);
+    return true;
 }
 
 // ============================================================================
@@ -204,17 +263,26 @@ void vTaskComms(void *pvParameters) {
     socketInit();
 
     for (;;) {
+        socketWaitForWifi();
         WiFiClient client = socketWaitForClient();
 
-        uint32_t lastSentSeq = UINT32_MAX;  // Força envio na primeira iteração
-        TickType_t xLastSendTime = xTaskGetTickCount();
-        const TickType_t kSendInterval = pdMS_TO_TICKS(2500);
+        uint32_t lastSentSeq = 0;
+        bool forceSendState = false;
+        String rxBuffer;
+        bool rxOverflow = false;
+        const TickType_t kStatePollInterval = pdMS_TO_TICKS(250);
+        TickType_t xLastStatePoll = xTaskGetTickCount() - kStatePollInterval;
 
         while (client.connected()) {
-            // --- Envio: periodicamente envia o estado atual ao desktop ------
+            if (WiFi.status() != WL_CONNECTED) {
+                Serial.println("[comms/socket] WiFi caiu — encerrando cliente atual");
+                break;
+            }
+
+            // --- Envio: envia o estado assim que houver leitura valida nova ---
             TickType_t now = xTaskGetTickCount();
-            if ((now - xLastSendTime) >= kSendInterval) {
-                xLastSendTime = now;
+            if ((now - xLastStatePoll) >= kStatePollInterval) {
+                xLastStatePoll = now;
 
                 SystemState snap;
                 if (xSemaphoreTake(xStateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -225,40 +293,62 @@ void vTaskComms(void *pvParameters) {
                     continue;
                 }
 
-                // Envia apenas se o estado mudou desde a última transmissão.
-                if (snap.seq != lastSentSeq) {
-                    StaticJsonDocument<256> txDoc;
-                    protocolBuildReading(txDoc, snap);
+                Config cfg;
+                if (xSemaphoreTake(xConfigMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                    cfg = g_config;
+                    xSemaphoreGive(xConfigMutex);
+                } else {
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                    continue;
+                }
+
+                // seq == 0 representa o estado inicial, antes de qualquer leitura real.
+                if (snap.seq > 0 && (forceSendState || snap.seq != lastSentSeq)) {
+                    StaticJsonDocument<512> txDoc;
+                    protocolBuildReading(txDoc, snap, cfg);
                     if (!socketSendLine(client, txDoc)) {
                         Serial.println("[comms/socket] Falha no envio — cliente desconectado");
                         break;
                     }
                     lastSentSeq = snap.seq;
+                    forceSendState = false;
                 }
             }
 
-            // --- Recebimento: verifica dados chegando do desktop ------------
-            if (client.available()) {
-                String line = socketReadLine(client);
-                if (line.isEmpty()) {
-                    vTaskDelay(pdMS_TO_TICKS(10));
-                    continue;
-                }
-
-                StaticJsonDocument<128> rxDoc;
+            // --- Recebimento: processa somente linhas JSON completas --------
+            String line;
+            bool keepClient = true;
+            while (socketReadLine(client, rxBuffer, rxOverflow, line)) {
+                StaticJsonDocument<192> rxDoc;
                 String msgType = protocolParseIncoming(line, rxDoc);
 
                 if (msgType == "config") {
                     bool ok = persistApplyConfig(rxDoc);
-                    StaticJsonDocument<64> ackDoc;
+                    StaticJsonDocument<128> ackDoc;
                     protocolBuildAck(ackDoc,
                                      ok ? "ok" : "error",
                                      ok ? nullptr : "Valores invalidos ou fora do intervalo");
-                    socketSendLine(client, ackDoc);
+                    if (!socketSendLine(client, ackDoc)) {
+                        keepClient = false;
+                        break;
+                    }
+                    if (ok) {
+                        forceSendState = true;
+                    }
                 } else if (!msgType.isEmpty()) {
                     Serial.printf("[comms/proto] Tipo de mensagem desconhecido: %s\n",
                                   msgType.c_str());
+                    StaticJsonDocument<128> ackDoc;
+                    protocolBuildAck(ackDoc, "error", "Tipo de mensagem desconhecido");
+                    if (!socketSendLine(client, ackDoc)) {
+                        keepClient = false;
+                        break;
+                    }
                 }
+            }
+
+            if (!keepClient) {
+                break;
             }
 
             vTaskDelay(pdMS_TO_TICKS(50));

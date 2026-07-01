@@ -19,6 +19,8 @@ from typing import Callable, Optional
 from chart import LiveChart
 
 POLL_MS = 250
+DEFAULT_TEMP_THRESH = 27.0
+DEFAULT_HUM_THRESH = 60.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,16 +149,16 @@ class MainWindow(tk.Tk):
     def __init__(
         self,
         data_queue: queue.Queue,
-        send_config_fn: Callable[[float, float], None],
+        send_config_fn: Optional[Callable[[float, float], None]] = None,
         simulate: bool = False,
     ):
         super().__init__()
-        self.data_queue   = data_queue
-        self.send_config  = send_config_fn
-        self.simulate     = simulate
+        self.data_queue = data_queue
+        self._send_config_fn = send_config_fn
+        self.simulate = simulate
 
-        self._temp_thresh = tk.DoubleVar(value=20.0)
-        self._hum_thresh  = tk.DoubleVar(value=60.0)
+        self._temp_thresh = tk.DoubleVar(value=DEFAULT_TEMP_THRESH)
+        self._hum_thresh  = tk.DoubleVar(value=DEFAULT_HUM_THRESH)
 
         self._setup_window()
         self._build_header()
@@ -166,6 +168,16 @@ class MainWindow(tk.Tk):
         self._build_config_panel()
 
         self.after(POLL_MS, self._poll_queue)
+
+    def set_send_config_fn(self, send_config_fn: Callable[[float, float], None]) -> None:
+        self._send_config_fn = send_config_fn
+        if hasattr(self, "_btn"):
+            self._btn.configure(state=tk.NORMAL)
+
+    def send_config(self, temp_thresh: float, hum_thresh: float) -> None:
+        if self._send_config_fn is None:
+            raise RuntimeError("Cliente ainda nao esta pronto")
+        self._send_config_fn(temp_thresh, hum_thresh)
 
     # ── Window ────────────────────────────────────────────────────────
     def _setup_window(self) -> None:
@@ -314,6 +326,7 @@ class MainWindow(tk.Tk):
             bg=P.ACCENT, fg="white", relief=tk.FLAT,
             activebackground=P.ACCENT_H, activeforeground="white",
             padx=18, pady=5, cursor="hand2",
+            state=(tk.NORMAL if self._send_config_fn else tk.DISABLED),
             command=self._on_send_config
         )
         self._btn.grid(row=1, column=4, padx=(0, 0))
@@ -336,7 +349,7 @@ class MainWindow(tk.Tk):
                 raise ValueError("Fora do intervalo permitido")
             self.send_config(temp, hum)
             self._set_feedback("Configuração enviada. Aguardando confirmação…", P.FG_MID)
-        except (ValueError, tk.TclError) as exc:
+        except (RuntimeError, ValueError, tk.TclError) as exc:
             self._set_feedback(f"Erro: {exc}", P.ERR)
 
     def _set_feedback(self, msg: str, color: str) -> None:
@@ -357,11 +370,11 @@ class MainWindow(tk.Tk):
         msg_type = data.get("type", "")
 
         if msg_type == "reading":
-            temp  = data.get("temp")
-            hum   = data.get("hum")
+            temp  = self._as_float(data.get("temp"))
+            hum   = self._as_float(data.get("hum"))
             heat  = data.get("heat", False)
             dehum = data.get("dehum", False)
-            rec   = data.get("rec", "")
+            rec   = str(data.get("rec", ""))
 
             if temp is not None:
                 self._temp_val.configure(text=f"{temp:.1f}")
@@ -372,6 +385,8 @@ class MainWindow(tk.Tk):
             self._led_dehum.set_active(dehum)
             self._rec_var.set(rec or "—")
             self._chart.update(temp, hum)
+            self._sync_threshold(data.get("temp_thresh"), self._temp_thresh, self._entry_temp)
+            self._sync_threshold(data.get("hum_thresh"), self._hum_thresh, self._entry_hum)
 
         elif msg_type == "ack":
             ok = data.get("status") == "ok"
@@ -380,6 +395,21 @@ class MainWindow(tk.Tk):
                 self._set_feedback("✔  Configuração aceita pelo ESP32.", P.OK)
             else:
                 self._set_feedback(f"✘  Erro do ESP32: {msg}", P.ERR)
+
+    @staticmethod
+    def _as_float(value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _sync_threshold(self, value, var: tk.DoubleVar, entry: tk.Entry) -> None:
+        parsed = self._as_float(value)
+        if parsed is None or self.focus_get() is entry:
+            return
+        var.set(round(parsed, 1))
 
     # ── Status bar (thread-safe) ──────────────────────────────────────
     def set_connection_status(self, msg: str) -> None:

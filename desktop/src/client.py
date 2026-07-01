@@ -32,7 +32,7 @@ class SocketClient(threading.Thread):
     """
 
     RECONNECT_DELAY_S = 3.0   # Espera entre tentativas de reconexão
-    RECV_TIMEOUT_S    = 5.0   # Timeout de leitura do socket (evita bloqueio indefinido)
+    CONNECT_TIMEOUT_S = 5.0   # Timeout para estabelecer a conexão TCP
     RECV_BUFFER_SIZE  = 2048  # Bytes por chamada recv()
 
     def __init__(
@@ -50,7 +50,7 @@ class SocketClient(threading.Thread):
 
         self._sock: Optional[socket.socket] = None
         self._running = True
-        self._send_queue: queue.Queue = queue.Queue()
+        self._send_queue: queue.Queue[str] = queue.Queue()
 
     # ------------------------------------------------------------------
     # API pública (segura para chamar de qualquer thread)
@@ -63,14 +63,16 @@ class SocketClient(threading.Thread):
             "temp_thresh": round(temp_thresh, 1),
             "hum_thresh":  round(hum_thresh,  1),
         }) + "\n"
+        self._drop_pending_configs()
         self._send_queue.put(msg)
 
     def stop(self) -> None:
         """Sinaliza a thread para parar e fecha o socket."""
         self._running = False
-        if self._sock:
+        sock = self._sock
+        if sock:
             try:
-                self._sock.close()
+                sock.close()
             except OSError:
                 pass
 
@@ -82,6 +84,14 @@ class SocketClient(threading.Thread):
         if self.status_callback:
             self.status_callback(msg)
 
+    def _drop_pending_configs(self) -> None:
+        """Mantem apenas o comando de configuracao mais recente."""
+        while True:
+            try:
+                self._send_queue.get_nowait()
+            except queue.Empty:
+                return
+
     def _connect(self) -> bool:
         """
         Tenta conectar ao servidor TCP do ESP32.
@@ -89,29 +99,42 @@ class SocketClient(threading.Thread):
         Retorna True em sucesso, False se parado antes de conectar.
         """
         while self._running:
+            sock: Optional[socket.socket] = None
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(self.RECV_TIMEOUT_S)
-                sock.connect((self.host, self.port))
+                sock = socket.create_connection(
+                    (self.host, self.port),
+                    timeout=self.CONNECT_TIMEOUT_S,
+                )
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self._sock = sock
                 self._set_status(f"Conectado a {self.host}:{self.port}")
                 return True
             except (ConnectionRefusedError, OSError, socket.timeout) as exc:
+                if sock:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
                 self._set_status(f"Desconectado — reconectando em {self.RECONNECT_DELAY_S:.0f}s ({exc})")
                 time.sleep(self.RECONNECT_DELAY_S)
         return False
 
     def _flush_send_queue(self) -> bool:
         """Envia todas as mensagens de saída enfileiradas. Retorna False em erro de socket."""
-        while not self._send_queue.empty():
+        if not self._sock:
+            return False
+
+        while True:
             try:
                 msg: str = self._send_queue.get_nowait()
-                self._sock.sendall(msg.encode("utf-8"))
             except queue.Empty:
-                break
+                return True
+
+            try:
+                self._sock.sendall(msg.encode("utf-8"))
             except OSError:
+                self._send_queue.put(msg)
                 return False
-        return True
 
     # ------------------------------------------------------------------
     # Loop principal da thread
